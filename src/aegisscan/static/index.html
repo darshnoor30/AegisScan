@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AegisScan authorized attack-surface and port intelligence dashboard">
+  <title>AegisScan — Attack-Surface Intelligence</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="orb orb-one"></div><div class="orb orb-two"></div>
+  <header class="nav shell">
+    <a class="brand" href="/" aria-label="AegisScan home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span><strong>Aegis</strong>Scan</span>
+    </a>
+    <div class="nav-meta"><span class="live-dot"></span> Local defensive workspace <span class="version">v1.0</span></div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <div class="eyebrow"><span>◆</span> Evidence before assumptions</div>
+        <h1>Know what’s listening.<br><em>Fix what matters.</em></h1>
+        <p>A professional attack-surface scanner that turns reachable ports into explainable,
+          prioritized remediation—without pretending every open service is a vulnerability.</p>
+        <div class="trust-row">
+          <span>Zero raw sockets</span><span>Bounded concurrency</span><span>Reports built for action</span>
+        </div>
+      </div>
+      <aside class="hero-signal" aria-label="Platform capability summary">
+        <div class="radar"><i></i><i></i><i></i><b></b></div>
+        <div><strong>TCP • HTTP • TLS</strong><span>Safe protocol-aware evidence</span></div>
+      </aside>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="card scan-card">
+        <div class="card-head">
+          <div><span class="step">01</span><h2>Define authorized scope</h2></div>
+          <span class="safe-pill">Safe mode</span>
+        </div>
+        <form id="scan-form">
+          <label for="targets">Target</label>
+          <div class="field-wrap"><span class="field-icon">⌖</span>
+            <input id="targets" name="targets" value="127.0.0.1" autocomplete="off"
+              placeholder="IP, hostname, or CIDR" aria-describedby="target-help" required>
+          </div>
+          <div id="target-help" class="field-help">Comma-separated values supported. Public targets are blocked by dashboard policy.</div>
+
+          <label for="ports">Ports</label>
+          <div class="presets" role="group" aria-label="Port presets">
+            <button type="button" class="preset active" data-ports="default">Essential</button>
+            <button type="button" class="preset" data-ports="web">Web</button>
+            <button type="button" class="preset" data-ports="remote">Remote</button>
+            <button type="button" class="preset" data-ports="database">Database</button>
+          </div>
+          <div class="field-wrap"><span class="field-icon">:</span>
+            <input id="ports" name="ports" value="default" autocomplete="off"
+              placeholder="22,80,443,8000-8010" required>
+          </div>
+
+          <div class="two-col">
+            <div><label for="timeout">Timeout</label>
+              <div class="field-wrap compact"><input id="timeout" type="number" min="0.1" max="10" step="0.1" value="0.8"><span>s</span></div>
+            </div>
+            <div><label for="concurrency">Concurrency</label>
+              <div class="field-wrap compact"><input id="concurrency" type="number" min="1" max="500" value="150"><span>workers</span></div>
+            </div>
+          </div>
+
+          <label class="authorization">
+            <input id="authorized" type="checkbox" required>
+            <span class="checkmark"></span>
+            <span><strong>I own this system or have explicit permission to scan it.</strong>
+              <small>Authorization is required for every scan.</small></span>
+          </label>
+          <button id="scan-button" class="primary" type="submit"><span>Run authorized scan</span><b>→</b></button>
+          <div id="form-error" class="error" role="alert" hidden></div>
+        </form>
+      </article>
+
+      <article class="card monitor-card">
+        <div class="card-head">
+          <div><span class="step">02</span><h2>Live assessment</h2></div>
+          <span id="run-status" class="status idle"><i></i> Ready</span>
+        </div>
+        <div id="empty-state" class="empty-state">
+          <div class="mini-terminal" aria-hidden="true">
+            <div><span></span><span></span><span></span></div>
+            <code><b>$</b> aegisscan scan --authorized</code>
+            <code class="dim">Awaiting an approved scope…</code>
+            <code class="pulse-line">_</code>
+          </div>
+          <h3>Ready when your scope is.</h3>
+          <p>A real TCP assessment will run locally. No sample numbers or fabricated findings.</p>
+        </div>
+        <div id="progress-state" class="progress-state" hidden>
+          <div class="progress-orbit"><div id="progress-number">0%</div><span></span></div>
+          <h3 id="progress-title">Resolving targets</h3>
+          <p id="progress-detail">Preparing the approved scope…</p>
+          <div class="progress-track"><i id="progress-bar"></i></div>
+          <div class="progress-metrics"><span><b id="probes-done">0</b> probes complete</span><span><b id="open-live">0</b> open</span></div>
+        </div>
+        <div id="score-state" class="score-state" hidden>
+          <div id="score-ring" class="score-ring"><div><strong id="score-value">100</strong><span>Exposure score</span></div></div>
+          <div class="score-copy"><span id="grade-pill" class="grade-pill">Grade A</span><h3 id="score-title">Assessment complete</h3>
+            <p id="score-description">Prioritized evidence is ready for review.</p>
+            <a id="report-link" class="text-link" href="#" target="_blank" rel="noopener">Open executive HTML report ↗</a>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="results" class="results" hidden>
+      <div class="section-title"><div><span class="step">03</span><h2>Exposure intelligence</h2></div>
+        <span id="scan-id" class="scan-id"></span></div>
+      <div class="kpis">
+        <article><span>Resolved assets</span><strong id="kpi-assets">0</strong></article>
+        <article><span>TCP probes</span><strong id="kpi-probes">0</strong></article>
+        <article><span>Open services</span><strong id="kpi-open">0</strong></article>
+        <article><span>Priority findings</span><strong id="kpi-findings">0</strong></article>
+      </div>
+
+      <div class="result-grid">
+        <article class="card result-card">
+          <div class="result-head"><h3>Observed services</h3><span id="service-count">0 endpoints</span></div>
+          <div class="table-scroll"><table><thead><tr><th>Asset</th><th>Port</th><th>Service</th><th>Evidence</th><th>Latency</th></tr></thead>
+            <tbody id="services-body"></tbody></table></div>
+        </article>
+        <article class="card result-card findings-panel">
+          <div class="result-head"><h3>Prioritized findings</h3><div id="severity-summary"></div></div>
+          <div id="findings-list" class="findings-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="methodology">
+      <div><span class="eyebrow"><span>◆</span> Engineering depth</span><h2>Built like a security product,<br>not a classroom script.</h2></div>
+      <div class="method-grid">
+        <article><span>01</span><h3>Evidence-led</h3><p>Reachability, latency, service, HTTP, TLS, and banner evidence are kept separate from conclusions.</p></article>
+        <article><span>02</span><h3>Explainable risk</h3><p>Every priority has evidence, impact, confidence, and a concrete remediation action.</p></article>
+        <article><span>03</span><h3>Operational output</h3><p>JSON, CSV, SARIF, HTML, and drift comparison connect discovery to SOC and CI workflows.</p></article>
+        <article><span>04</span><h3>Safe by design</h3><p>Authorization, public-scope controls, caps, timeouts, and a non-root container reduce misuse.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer shell"><div class="brand"><span class="brand-mark small"><span></span></span><span><strong>Aegis</strong>Scan</span></div>
+    <p>Authorized attack-surface intelligence by Darshnoor Kaur.</p></footer>
+</body>
+</html>
+
