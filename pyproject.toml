@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegisscan"
-version = "1.0.0"
+version = "1.1.0"
 description = "Authorized attack-surface discovery and evidence-based port intelligence."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,19 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 aegisscan = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["aegisscan"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70
 
 [tool.ruff]
 line-length = 100

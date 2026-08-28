@@ -26,8 +26,9 @@ Please allow a reasonable remediation window before public disclosure.
 - explicit authorization acknowledgement;
 - public-target opt-in and server-side policy gate;
 - bounded concurrency and configurable timeouts;
+- maximum two active dashboard scans and 100 retained in-memory jobs;
+- same-origin browser request validation and no CORS;
 - loopback-only dashboard binding by default;
 - no raw sockets or elevated privileges;
-- HTML escaping and strict API input validation;
+- HTML escaping, contextual-input validation, response security headers, and request-size limits;
 - non-root, capability-free container.
-

@@ -3,9 +3,20 @@
   "$id": "https://github.com/darshnoor30/AegisScan/schemas/aegisscan-result.schema.json",
   "title": "AegisScan result",
   "type": "object",
-  "required": ["schema_version", "scan_id", "engine_version", "started_at", "finished_at", "config", "assets", "observations", "findings", "summary"],
+  "required": [
+    "schema_version",
+    "scan_id",
+    "engine_version",
+    "started_at",
+    "finished_at",
+    "config",
+    "assets",
+    "observations",
+    "findings",
+    "summary"
+  ],
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "1.1"},
     "scan_id": {"type": "string", "format": "uuid"},
     "engine_version": {"type": "string"},
     "started_at": {"type": "string", "format": "date-time"},
@@ -20,19 +31,89 @@
   "$defs": {
     "asset": {
       "type": "object",
-      "required": ["label", "address", "family", "is_public"],
-      "properties": {"label": {"type": "string"}, "address": {"type": "string"}, "family": {"enum": ["IPv4", "IPv6"]}, "is_public": {"type": "boolean"}}
+      "required": ["label", "address", "family", "is_public", "network_scope"],
+      "properties": {
+        "label": {"type": "string"},
+        "address": {"type": "string"},
+        "family": {"enum": ["IPv4", "IPv6"]},
+        "is_public": {"type": "boolean"},
+        "network_scope": {
+          "enum": ["loopback", "link-local", "private", "public", "special"]
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "required": [
+        "service",
+        "port_hint",
+        "confidence",
+        "classification_method",
+        "evidence"
+      ],
+      "properties": {
+        "service": {"type": "string"},
+        "port_hint": {"type": "string"},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "classification_method": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "product": {"type": "string"},
+        "banner": {"type": "string"},
+        "http": {"type": "object"},
+        "tls": {"type": "object"}
+      }
     },
     "observation": {
       "type": "object",
       "required": ["target", "address", "port", "protocol", "state", "fingerprint"],
-      "properties": {"target": {"type": "string"}, "address": {"type": "string"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "protocol": {"const": "tcp"}, "state": {"const": "open"}, "latency_ms": {"type": ["number", "null"]}, "fingerprint": {"type": "object"}}
+      "properties": {
+        "target": {"type": "string"},
+        "address": {"type": "string"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "protocol": {"const": "tcp"},
+        "state": {"const": "open"},
+        "latency_ms": {"type": ["number", "null"]},
+        "fingerprint": {"$ref": "#/$defs/fingerprint"}
+      }
     },
     "finding": {
       "type": "object",
-      "required": ["finding_id", "title", "severity", "confidence", "address", "port", "evidence", "impact", "recommendation"],
-      "properties": {"finding_id": {"type": "string"}, "title": {"type": "string"}, "severity": {"enum": ["critical", "high", "medium", "low", "informational"]}, "confidence": {"enum": ["high", "medium", "low"]}, "address": {"type": "string"}, "port": {"type": "integer"}, "evidence": {"type": "string"}, "impact": {"type": "string"}, "recommendation": {"type": "string"}}
+      "required": [
+        "finding_id",
+        "title",
+        "severity",
+        "base_severity",
+        "confidence",
+        "network_scope",
+        "risk_factors",
+        "score_deduction",
+        "address",
+        "port",
+        "evidence",
+        "impact",
+        "recommendation"
+      ],
+      "properties": {
+        "finding_id": {"type": "string"},
+        "title": {"type": "string"},
+        "severity": {
+          "enum": ["critical", "high", "medium", "low", "informational"]
+        },
+        "base_severity": {
+          "enum": ["critical", "high", "medium", "low", "informational"]
+        },
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "network_scope": {
+          "enum": ["loopback", "link-local", "private", "public", "special"]
+        },
+        "risk_factors": {"type": "array", "items": {"type": "string"}},
+        "score_deduction": {"type": "integer", "minimum": 0},
+        "address": {"type": "string"},
+        "port": {"type": "integer"},
+        "evidence": {"type": "string"},
+        "impact": {"type": "string"},
+        "recommendation": {"type": "string"}
+      }
     }
   }
 }
-

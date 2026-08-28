@@ -6,6 +6,7 @@
   <meta name="description" content="AegisScan authorized attack-surface and port intelligence dashboard">
   <title>AegisScan — Attack-Surface Intelligence</title>
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/context.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -15,7 +16,7 @@
       <span class="brand-mark" aria-hidden="true"><span></span></span>
       <span><strong>Aegis</strong>Scan</span>
     </a>
-    <div class="nav-meta"><span class="live-dot"></span> Local defensive workspace <span class="version">v1.0</span></div>
+    <div class="nav-meta"><span class="live-dot"></span> Local defensive workspace <span class="version">v1.1</span></div>
   </header>
 
   <main class="shell">
@@ -70,6 +71,21 @@
             </div>
           </div>
 
+          <div class="two-col context-fields">
+            <div><label for="environment">Environment</label>
+              <div class="field-wrap compact"><select id="environment">
+                <option value="unknown">Unknown</option><option value="development">Development</option>
+                <option value="staging">Staging</option><option value="production">Production</option>
+              </select></div>
+            </div>
+            <div><label for="criticality">Asset criticality</label>
+              <div class="field-wrap compact"><select id="criticality">
+                <option value="standard">Standard</option><option value="low">Low</option>
+                <option value="high">High</option><option value="critical">Critical</option>
+              </select></div>
+            </div>
+          </div>
+
           <label class="authorization">
             <input id="authorized" type="checkbox" required>
             <span class="checkmark"></span>
@@ -89,7 +105,7 @@
         <div id="empty-state" class="empty-state">
           <div class="mini-terminal" aria-hidden="true">
             <div><span></span><span></span><span></span></div>
-            <code><b>$</b> aegisscan scan --authorized</code>
+            <code><b>$</b> aegisscan scan --i-own-or-have-permission</code>
             <code class="dim">Awaiting an approved scope…</code>
             <code class="pulse-line">_</code>
           </div>
@@ -104,9 +120,10 @@
           <div class="progress-metrics"><span><b id="probes-done">0</b> probes complete</span><span><b id="open-live">0</b> open</span></div>
         </div>
         <div id="score-state" class="score-state" hidden>
-          <div id="score-ring" class="score-ring"><div><strong id="score-value">100</strong><span>Exposure score</span></div></div>
-          <div class="score-copy"><span id="grade-pill" class="grade-pill">Grade A</span><h3 id="score-title">Assessment complete</h3>
+          <div id="score-ring" class="score-ring"><div><strong id="score-value">100</strong><span>Posture index</span></div></div>
+          <div class="score-copy"><span id="grade-pill" class="grade-pill">Posture A</span><h3 id="score-title">Assessment complete</h3>
             <p id="score-description">Prioritized evidence is ready for review.</p>
+            <small class="score-note">Contextual prioritization aid—not a compliance result or compromise probability.</small>
             <a id="report-link" class="text-link" href="#" target="_blank" rel="noopener">Open executive HTML report ↗</a>
           </div>
         </div>
@@ -120,13 +137,13 @@
         <article><span>Resolved assets</span><strong id="kpi-assets">0</strong></article>
         <article><span>TCP probes</span><strong id="kpi-probes">0</strong></article>
         <article><span>Open services</span><strong id="kpi-open">0</strong></article>
-        <article><span>Priority findings</span><strong id="kpi-findings">0</strong></article>
+        <article><span>Actionable findings</span><strong id="kpi-findings">0</strong></article>
       </div>
 
       <div class="result-grid">
         <article class="card result-card">
           <div class="result-head"><h3>Observed services</h3><span id="service-count">0 endpoints</span></div>
-          <div class="table-scroll"><table><thead><tr><th>Asset</th><th>Port</th><th>Service</th><th>Evidence</th><th>Latency</th></tr></thead>
+          <div class="table-scroll"><table><thead><tr><th>Asset</th><th>Port</th><th>Service</th><th>Confidence</th><th>Scope</th><th>Evidence</th><th>Latency</th></tr></thead>
             <tbody id="services-body"></tbody></table></div>
         </article>
         <article class="card result-card findings-panel">
@@ -140,9 +157,9 @@
       <div><span class="eyebrow"><span>◆</span> Engineering depth</span><h2>Built like a security product,<br>not a classroom script.</h2></div>
       <div class="method-grid">
         <article><span>01</span><h3>Evidence-led</h3><p>Reachability, latency, service, HTTP, TLS, and banner evidence are kept separate from conclusions.</p></article>
-        <article><span>02</span><h3>Explainable risk</h3><p>Every priority has evidence, impact, confidence, and a concrete remediation action.</p></article>
-        <article><span>03</span><h3>Operational output</h3><p>JSON, CSV, SARIF, HTML, and drift comparison connect discovery to SOC and CI workflows.</p></article>
-        <article><span>04</span><h3>Safe by design</h3><p>Authorization, public-scope controls, caps, timeouts, and a non-root container reduce misuse.</p></article>
+        <article><span>02</span><h3>Contextual risk</h3><p>Scope, evidence confidence, environment, and asset criticality adjust every priority transparently.</p></article>
+        <article><span>03</span><h3>Measured behavior</h3><p>A deterministic loopback benchmark verifies port states and non-standard service identification.</p></article>
+        <article><span>04</span><h3>Safe by design</h3><p>Authorization, origin checks, job limits, scope caps, and a non-root container reduce misuse.</p></article>
       </div>
     </section>
   </main>
@@ -151,4 +168,3 @@
     <p>Authorized attack-surface intelligence by Darshnoor Kaur.</p></footer>
 </body>
 </html>
-

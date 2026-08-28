@@ -11,9 +11,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from aegisscan import __version__
-from aegisscan.intelligence import analyze_exposure
-from aegisscan.models import Fingerprint, PortObservation, ScanResult, Target
-from aegisscan.probes import fingerprint_endpoint, service_name
+from aegisscan.intelligence import (
+    VALID_CRITICALITIES,
+    VALID_ENVIRONMENTS,
+    analyze_exposure,
+)
+from aegisscan.models import PortObservation, ScanResult, Target
+from aegisscan.probes import fingerprint_endpoint, port_fingerprint
 from aegisscan.targets import enforce_authorization, expand_targets
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -29,6 +33,8 @@ class ScanConfig:
     authorized: bool = False
     allow_public: bool = False
     fingerprint: bool = True
+    environment: str = "unknown"
+    asset_criticality: str = "standard"
 
     def validate(self) -> None:
         if not 0.1 <= self.timeout <= 10:
@@ -43,6 +49,12 @@ class ScanConfig:
             raise ValueError("A scan cannot exceed 2,048 unique ports")
         if any(not 1 <= int(port) <= 65_535 for port in self.ports):
             raise ValueError("Ports must be between 1 and 65535")
+        if self.environment not in VALID_ENVIRONMENTS:
+            choices = ", ".join(sorted(VALID_ENVIRONMENTS))
+            raise ValueError(f"Environment must be one of: {choices}")
+        if self.asset_criticality not in VALID_CRITICALITIES:
+            choices = ", ".join(sorted(VALID_CRITICALITIES))
+            raise ValueError(f"Asset criticality must be one of: {choices}")
 
 
 async def _connect_state(target: Target, port: int, timeout: float) -> tuple[str, float | None]:
@@ -113,12 +125,14 @@ async def scan(config: ScanConfig, progress: ProgressCallback | None = None) -> 
                 state, latency = await _connect_state(asset, port, config.timeout)
                 states[state] += 1
                 if state == "open":
-                    fingerprint = None
+                    fingerprint = port_fingerprint(port)
                     if config.fingerprint:
                         try:
                             fingerprint = await fingerprint_endpoint(asset, port, config.timeout)
                         except Exception:
-                            fingerprint = Fingerprint(service=service_name(port))
+                            fingerprint.evidence.append(
+                                "Active identification failed; only the port association is available."
+                            )
                     observation = PortObservation(
                         target=asset.label,
                         address=asset.address,
@@ -127,8 +141,7 @@ async def scan(config: ScanConfig, progress: ProgressCallback | None = None) -> 
                         state=state,
                         latency_ms=latency,
                     )
-                    if fingerprint is not None:
-                        observation.fingerprint = fingerprint
+                    observation.fingerprint = fingerprint
                     observations.append(observation)
                 completed += 1
                 if config.delay_ms:
@@ -146,7 +159,12 @@ async def scan(config: ScanConfig, progress: ProgressCallback | None = None) -> 
 
     report("analyzing")
     observations.sort(key=lambda item: (item.address, item.port))
-    findings, intelligence_summary = analyze_exposure(observations, assets)
+    findings, intelligence_summary = analyze_exposure(
+        observations,
+        assets,
+        environment=config.environment,
+        asset_criticality=config.asset_criticality,
+    )
     finished_at = datetime.now(UTC)
     duration_ms = round((time.perf_counter() - started_clock) * 1_000)
     summary = {
@@ -161,10 +179,13 @@ async def scan(config: ScanConfig, progress: ProgressCallback | None = None) -> 
         },
         "open_ports": len(observations),
         "findings": len(findings),
+        "actionable_findings": sum(
+            finding.severity != "informational" for finding in findings
+        ),
         **intelligence_summary,
     }
     result = ScanResult(
-        schema_version="1.0",
+        schema_version="1.1",
         scan_id=scan_id,
         engine_version=__version__,
         started_at=started_at.isoformat(),
@@ -178,6 +199,8 @@ async def scan(config: ScanConfig, progress: ProgressCallback | None = None) -> 
             "delay_ms": config.delay_ms,
             "fingerprint": config.fingerprint,
             "public_targets_enabled": config.allow_public,
+            "environment": config.environment,
+            "asset_criticality": config.asset_criticality,
         },
         assets=assets,
         observations=observations,

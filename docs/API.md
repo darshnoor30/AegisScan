@@ -20,6 +20,8 @@ The dependency-free dashboard server exposes a deliberately small same-origin AP
   "ports": "22,80,443,8000-8010",
   "timeout": 0.8,
   "concurrency": 150,
+  "environment": "production",
+  "asset_criticality": "high",
   "authorized": true,
   "fingerprint": true
 }
@@ -27,6 +29,8 @@ The dependency-free dashboard server exposes a deliberately small same-origin AP
 
 Returns HTTP 202 with a job ID and status URL. Public targets are rejected unless both the request
 contains `"allow_public": true` and the server was launched with `AEGISSCAN_ALLOW_PUBLIC=true`.
+Allowed environments are `unknown`, `development`, `staging`, and `production`. Allowed
+criticalities are `low`, `standard`, `high`, and `critical`.
 
 ## Scan status
 
@@ -44,5 +48,5 @@ Returns up to 20 recent persisted scans, newest first.
 
 `GET /reports/{job_id}.html` or `GET /reports/{scan_id}.html`
 
-All API responses are no-store and include content-type, frame, referrer, and CSP protections.
-
+All API responses are no-store and include content-type, frame, referrer, permissions, and CSP
+protections. Cross-site scan requests are rejected, and at most two dashboard scans run concurrently.

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -22,13 +26,22 @@ jobs:
           cache: pip
       - run: python -m pip install -e ".[dev,tls]"
       - run: ruff check src tests
+      - run: mypy src
       - run: pytest --cov=aegisscan --cov-report=term-missing
+      - run: python -m compileall -q src tests
+      - run: node --check src/aegisscan/static/app.js
+      - run: python -m json.tool schemas/aegisscan-result.schema.json
       - run: aegisscan demo --output /tmp/aegisscan-demo
+      - run: aegisscan benchmark --output /tmp/aegisscan-benchmark.json
+      - run: python -m pip wheel . --no-deps --wheel-dir /tmp/aegisscan-wheel
       - uses: actions/upload-artifact@v4
         if: matrix.python-version == '3.12'
         with:
           name: verified-demo-report
-          path: /tmp/aegisscan-demo.*
+          path: |
+            /tmp/aegisscan-demo.*
+            /tmp/aegisscan-benchmark.json
+            /tmp/aegisscan-wheel/*.whl
 
   container:
     runs-on: ubuntu-latest

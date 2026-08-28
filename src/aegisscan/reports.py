@@ -23,18 +23,25 @@ def render_html_report(document: dict[str, Any]) -> str:
     score = int(summary.get("security_score", 0))
     grade = summary.get("grade", "—")
     score_color = "#53e0a1" if score >= 80 else "#ffcc66" if score >= 60 else "#ff6680"
+    scope_by_address = {
+        str(asset.get("address")): asset.get("network_scope", "unknown")
+        for asset in document.get("assets", [])
+    }
 
     observation_rows = "".join(
         f"""
         <tr>
           <td><span class="mono">{_escape(item.get('address'))}</span></td>
           <td><span class="port">{_escape(item.get('port'))}/tcp</span></td>
-          <td>{_escape(item.get('fingerprint', {}).get('service', 'unknown'))}</td>
-          <td>{_escape(item.get('fingerprint', {}).get('product'))}</td>
+          <td>{_escape(item.get('fingerprint', {}).get('service', 'unknown'))}<br>
+            <small>{_escape(item.get('fingerprint', {}).get('confidence', 'low'))} confidence</small></td>
+          <td>{_escape(item.get('fingerprint', {}).get('product'))}<br>
+            <small>{_escape(item.get('fingerprint', {}).get('classification_method', 'unverified'))}</small></td>
+          <td>{_escape(scope_by_address.get(str(item.get('address')), 'unknown'))}</td>
           <td>{_escape(item.get('latency_ms'))} ms</td>
         </tr>"""
         for item in observations
-    ) or '<tr><td colspan="5" class="empty">No open TCP ports were observed.</td></tr>'
+    ) or '<tr><td colspan="6" class="empty">No open TCP ports were observed.</td></tr>'
 
     finding_cards = "".join(
         f"""
@@ -46,7 +53,10 @@ def render_html_report(document: dict[str, Any]) -> str:
           </div>
           <h3>{_escape(item.get('title'))}</h3>
           <dl>
+            <dt>Context</dt><dd>Base {_escape(item.get('base_severity'))} → effective {_escape(item.get('severity'))};
+              {_escape(item.get('confidence'))} confidence; {_escape(item.get('network_scope'))} scope.</dd>
             <dt>Evidence</dt><dd>{_escape(item.get('evidence'))}</dd>
+            <dt>Risk factors</dt><dd>{_escape(' '.join(item.get('risk_factors', [])))}</dd>
             <dt>Why it matters</dt><dd>{_escape(item.get('impact'))}</dd>
             <dt>Recommended action</dt><dd>{_escape(item.get('recommendation'))}</dd>
           </dl>
@@ -78,7 +88,7 @@ def render_html_report(document: dict[str, Any]) -> str:
     .score-row {{ display:flex; gap:28px; align-items:center; margin-top:30px; flex-wrap:wrap }}
     .score {{ width:136px; height:136px; border-radius:50%; display:grid; place-items:center;
       border:10px solid {score_color}; box-shadow:0 0 45px color-mix(in srgb,{score_color} 25%,transparent) }}
-    .score strong {{ font-size:41px; display:block; line-height:1 }} .score span {{ color:var(--muted) }}
+    .score strong {{ font-size:41px; display:block; line-height:1 }} .score span,small {{ color:var(--muted) }}
     .metrics {{ display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:12px; flex:1 }}
     .metric,.panel {{ background:#0d1424; border:1px solid var(--line); border-radius:16px; padding:17px }}
     .metric strong {{ display:block; font-size:25px }} .metric span {{ color:var(--muted); font-size:12px }}
@@ -115,15 +125,19 @@ def render_html_report(document: dict[str, Any]) -> str:
     <p class="lede">TCP reachability, safe service identification, explainable exposure prioritization,
       and actionable remediation. An open port is reported as exposure—not automatically as a vulnerability.</p>
     <div class="score-row">
-      <div class="score"><div><strong>{score}</strong><span>Grade { _escape(grade) }</span></div></div>
+      <div class="score"><div><strong>{score}</strong><span>Posture grade { _escape(grade) }</span></div></div>
       <div class="metrics">
         <div class="metric"><strong>{_escape(summary.get('targets', 0))}</strong><span>RESOLVED ASSETS</span></div>
         <div class="metric"><strong>{_escape(summary.get('probes_total', 0))}</strong><span>TCP PROBES</span></div>
         <div class="metric"><strong>{_escape(summary.get('open_ports', 0))}</strong><span>OPEN SERVICES</span></div>
-        <div class="metric"><strong>{_escape(summary.get('findings', 0))}</strong><span>PRIORITY FINDINGS</span></div>
+        <div class="metric"><strong>{_escape(summary.get('actionable_findings', summary.get('findings', 0)))}</strong><span>ACTIONABLE FINDINGS</span></div>
       </div>
     </div>
     <div class="scope"><span class="muted">Scope</span> <span class="mono">{_escape(target_scope)}</span><br>
+      <span class="muted">Context</span> {_escape(summary.get('risk_context', {}).get('environment', 'unknown'))} ·
+      {_escape(summary.get('risk_context', {}).get('asset_criticality', 'standard'))} criticality ·
+      <span class="muted">Identity</span> {_escape(summary.get('verified_services', 0))} verified /
+      {_escape(summary.get('inferred_services', 0))} inferred<br>
       <span class="muted">Scan ID</span> <span class="mono">{_escape(document.get('scan_id'))}</span> ·
       <span class="muted">Completed</span> {_escape(document.get('finished_at'))} ·
       <span class="muted">Duration</span> {_escape(document.get('duration_ms'))} ms</div>
@@ -140,7 +154,7 @@ def render_html_report(document: dict[str, Any]) -> str:
   <h2>Prioritized findings</h2>{finding_cards}
   <h2>Observed services</h2>
   <div class="table-wrap"><table><thead><tr><th>Address</th><th>Endpoint</th><th>Service</th>
-    <th>Product evidence</th><th>Latency</th></tr></thead><tbody>{observation_rows}</tbody></table></div>
+    <th>Product evidence</th><th>Scope</th><th>Latency</th></tr></thead><tbody>{observation_rows}</tbody></table></div>
 
   <h2>Method and limitations</h2>
   <div class="method">
@@ -149,7 +163,8 @@ def render_html_report(document: dict[str, Any]) -> str:
       identification to open endpoints.</p></div>
     <div class="panel"><strong>How to interpret this report</strong><p class="muted">Reachability can change with
       source location and firewall policy. Validate priority findings with asset owners. This report does not
-      exploit services, authenticate, or prove a CVE.</p></div>
+      exploit services, authenticate, or prove a CVE. The posture score is a transparent prioritization aid,
+      not a compliance grade or probability of compromise.<br><small>{_escape(summary.get('risk_model'))}</small></p></div>
   </div>
   <footer>Generated by AegisScan { _escape(document.get('engine_version')) } · Use only on authorized systems.</footer>
 </main></body></html>"""
@@ -157,7 +172,20 @@ def render_html_report(document: dict[str, Any]) -> str:
 
 def render_csv(document: dict[str, Any]) -> str:
     output = StringIO()
-    fields = ["target", "address", "port", "protocol", "state", "latency_ms", "service", "product", "banner"]
+    fields = [
+        "target",
+        "address",
+        "port",
+        "protocol",
+        "state",
+        "latency_ms",
+        "service",
+        "port_hint",
+        "service_confidence",
+        "classification_method",
+        "product",
+        "banner",
+    ]
     writer = csv.DictWriter(output, fieldnames=fields)
     writer.writeheader()
     for item in document.get("observations", []):
@@ -171,6 +199,9 @@ def render_csv(document: dict[str, Any]) -> str:
                 "state": item.get("state"),
                 "latency_ms": item.get("latency_ms"),
                 "service": fingerprint.get("service"),
+                "port_hint": fingerprint.get("port_hint"),
+                "service_confidence": fingerprint.get("confidence"),
+                "classification_method": fingerprint.get("classification_method"),
                 "product": fingerprint.get("product"),
                 "banner": fingerprint.get("banner"),
             }
@@ -213,6 +244,10 @@ def render_sarif(document: dict[str, Any]) -> str:
                 "properties": {
                     "finding_id": finding.get("finding_id"),
                     "severity": severity,
+                    "base_severity": finding.get("base_severity"),
+                    "confidence": finding.get("confidence"),
+                    "network_scope": finding.get("network_scope"),
+                    "score_deduction": finding.get("score_deduction"),
                     "recommendation": finding.get("recommendation"),
                 },
             }
@@ -253,4 +288,3 @@ def write_report_bundle(document: dict[str, Any], output: str | Path) -> dict[st
     paths["html"].write_text(render_html_report(document), encoding="utf-8")
     paths["sarif"].write_text(render_sarif(document), encoding="utf-8")
     return paths
-

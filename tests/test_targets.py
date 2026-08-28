@@ -12,6 +12,10 @@ class TargetTests(unittest.TestCase):
 
     def test_marks_public_address(self) -> None:
         self.assertTrue(expand_targets(["8.8.8.8"])[0].is_public)
+        self.assertEqual(expand_targets(["8.8.8.8"])[0].network_scope, "public")
+
+    def test_classifies_loopback_scope(self) -> None:
+        self.assertEqual(expand_targets(["127.0.0.1"])[0].network_scope, "loopback")
 
     def test_requires_authorization(self) -> None:
         targets = expand_targets(["127.0.0.1"])
@@ -31,4 +35,3 @@ class TargetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

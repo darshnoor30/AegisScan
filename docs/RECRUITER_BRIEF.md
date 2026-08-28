@@ -2,74 +2,99 @@
 
 ## One-line pitch
 
-**AegisScan is a safe, asynchronous network exposure platform that converts authorized TCP discovery
-into explainable risk, remediation, drift detection, and CI-ready reports.**
+**AegisScan is a safe asynchronous exposure-intelligence platform that separates port hints from
+verified protocol evidence, applies transparent scan context, and produces remediation and CI-ready
+reports.**
 
 ## Résumé bullets
 
-Use these after you have run the demo and can explain the implementation:
+Use these after running the demo and benchmark and understanding the implementation:
 
-- Engineered **AegisScan**, a zero-dependency Python attack-surface platform using bounded asynchronous
-  TCP workers, hostname/CIDR expansion, safe HTTP/TLS fingerprinting, and IPv4/IPv6 support.
-- Designed an explainable exposure model that separates observed evidence from security conclusions
-  and emits prioritized remediation through JSON, CSV, standalone HTML, and SARIF reports.
-- Implemented authorization/public-scope controls, resource caps, atomic scan history, baseline drift
-  detection, a responsive analyst dashboard, automated tests, CI, and a hardened non-root container.
+- Engineered **AegisScan**, a Python attack-surface platform with bounded asynchronous TCP workers,
+  hostname/CIDR expansion, IPv4/IPv6, and non-standard-port HTTP/HTTPS/SSH identification.
+- Designed a deterministic Contextual Exposure Model that separates port hints from confirmed
+  identity and explains how network scope, evidence confidence, environment, and asset criticality
+  produce each effective severity.
+- Built a responsive analyst dashboard, CLI, versioned JSON schema, JSON/CSV/HTML/SARIF reporting,
+  baseline drift detection, atomic history, authorization controls, and hardened non-root container.
+- Established a 46-test quality gate with 81% branch-aware coverage, Ruff, mypy, Python 3.11/3.12 CI,
+  CodeQL, Dependabot, and a reproducible loopback ground-truth benchmark.
 
-Do not invent scan-volume, speed, user, or detection-accuracy numbers. Add a measured number only after
-you run a documented benchmark in your own environment.
+The 100% benchmark figures apply only to its declared two-service/one-closed-port loopback matrix.
+Never present them as general production accuracy, and never invent users, scan volume, or speed.
 
 ## LinkedIn project description
 
-> Built AegisScan to explore how real security tooling moves from raw network data to defensible action.
-> The platform performs authorized, bounded TCP discovery; collects safe HTTP, TLS, certificate, and
-> banner evidence; then creates explainable exposure findings with impact and remediation. A shared
-> engine powers both a local analyst dashboard and CLI, with JSON/CSV/SARIF/HTML outputs and baseline
-> drift detection. I also added tests, CI, threat modeling, scope controls, and a non-root container.
-> The key design principle: an open port is evidence of exposure—not automatic proof of vulnerability.
+> Built AegisScan to explore how defensive tools turn network reachability into defensible action.
+> The platform performs authorized, bounded TCP discovery and collects conservative HTTP, TLS,
+> certificate, Redis, and server-banner evidence. It separates low-confidence port hints from
+> protocol-confirmed identity, then adjusts base exposure rules using loopback/private/public scope,
+> environment, and asset criticality. A shared engine powers the local dashboard and CLI, with
+> JSON/CSV/SARIF/HTML reports and baseline drift detection. I validated the release with 46 automated
+> tests, 81% coverage, static typing, CI, CodeQL, a threat model, and a documented local benchmark.
+> The central decision: an open port is evidence—not automatic proof of a service or vulnerability.
 
 ## 90-second demo
 
-1. **Problem (10 sec):** “Port lists are noisy. Owners need evidence, priority, and a concrete action.”
-2. **Safety (10 sec):** Show the authorization checkbox and explain public-target denial by default.
-3. **Real scan (20 sec):** Run `aegisscan demo`; explain that it starts and scans an actual local service.
-4. **Dashboard (20 sec):** Show progress, service evidence, exposure score, and remediation.
-5. **Engineering (20 sec):** Open the architecture diagram and bounded queue implementation.
-6. **Operations (10 sec):** Show HTML + SARIF output and `aegisscan diff` for configuration drift.
+1. **Problem (10 sec):** “A port number is only a hint. Teams need verified evidence and context.”
+2. **Safety (10 sec):** Show authorization, public-target denial, origin checks, and resource caps.
+3. **Regression (15 sec):** Explain why loopback port 27017 is no longer automatically critical.
+4. **Real scan (20 sec):** Run `aegisscan demo`; show identity method, confidence, and scope.
+5. **Measurement (15 sec):** Run `aegisscan benchmark`; state its exact ground-truth limitations.
+6. **Operations (20 sec):** Show risk factors, HTML/SARIF, CI checks, and baseline drift.
 
 ## Strong interview answers
 
 ### Why not call every open port a vulnerability?
 
-Reachability is an observation. Vulnerability depends on version, configuration, controls, and context.
-AegisScan keeps observation and interpretation separate, states confidence, and recommends validation.
-That reduces false claims while still prioritizing risky exposure.
+Reachability is an observation. Even service identity requires evidence beyond a default port.
+Vulnerability further depends on version, configuration, controls, and context. AegisScan stores
+these layers separately and recommends deeper validation instead of inventing a CVE claim.
+
+### Why does confirmed evidence override the port?
+
+Any process can bind to any port. If port 27017 returns syntactically valid HTTP, calling it MongoDB
+is a demonstrable false positive. The port remains in `port_hint`, but protocol evidence becomes
+the selected identity.
+
+### Why not add machine learning?
+
+The current questions—did TCP connect and did a protocol signature match—are deterministic.
+An unrelated intrusion dataset would not match the scanner's features or objective. ML would be
+appropriate only for a separately defined anomaly problem with task-matched historical telemetry,
+labelled ground truth, and independent evaluation.
+
+### How does contextual priority work?
+
+Each service has a documented base rule. Scope, confidence, environment, and criticality then apply
+ordered severity shifts. The result preserves the base severity, effective severity, every factor,
+and score deduction, so an analyst can audit or reject the summary.
 
 ### Why TCP connect instead of SYN scanning?
 
-TCP connect works without raw sockets or elevated privileges, is portable, and matches the project's
-safe operational goal. The tradeoff is that connections are more visible and state classification is
-less granular than a packet-level scanner—acceptable and explicitly documented here.
+TCP connect is portable, requires no raw sockets or elevated privilege, and matches the safe
+operational goal. The tradeoff is visible connections and less packet-level state detail than a SYN
+scanner. That boundary is intentional and documented.
 
-### How did you prevent concurrency from exhausting memory?
+### How is concurrency bounded?
 
-The engine uses a bounded async queue and a fixed worker pool. The producer cannot enqueue the entire
-target×port space at once because backpressure stops it at twice the worker count.
+A fixed worker pool consumes a queue sized to twice the worker count. Backpressure prevents the
+producer from materializing the entire target×port Cartesian product. The dashboard also caps active
+jobs at two and retained in-memory jobs at 100.
 
-### What would you add in an enterprise version?
+### What would an enterprise version add?
 
-Signed scan policies, authenticated multi-user access, distributed workers, asset ownership tags,
-approved scan windows, authenticated inventory connectors, metrics/tracing, rule packs, and result
-signing. I would preserve evidence/finding separation and introduce each probe through threat modeling.
+Signed scan policies, authenticated multi-user access, distributed workers, asset-owner metadata,
+approved windows, inventory connectors, tracing/metrics, signed results, and governed rule packs.
+Each new active probe would receive its own threat-model and benchmark case.
 
-### Where can results be misleading?
+### Where can results mislead?
 
-Firewall behavior varies by source location; a timeout can indicate filtering, packet loss, or service
-delay; banners can be hidden or deceptive; and a successful TCP connection does not prove exploitability.
-The report states these limitations and encourages asset-owner validation.
+Reachability changes with scanner location and firewall policy; timeouts are ambiguous; banners can
+be hidden or deceptive; analyst-supplied context can be wrong; and the posture index is not CVSS,
+compliance, or exploit probability. The evidence and risk factors remain the source of truth.
 
 ## Suggested repository topics
 
-`cybersecurity` · `network-security` · `port-scanner` · `attack-surface-management` · `python` ·
-`asyncio` · `soc` · `security-automation` · `sarif` · `devsecops`
-
+`cybersecurity` · `network-security` · `port-scanner` · `attack-surface-management` ·
+`python` · `asyncio` · `soc` · `security-automation` · `sarif` · `devsecops`

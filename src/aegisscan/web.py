@@ -11,18 +11,22 @@ from importlib.resources import files
 from typing import Any
 from urllib.parse import urlparse
 
+from aegisscan import __version__
 from aegisscan.ports import parse_ports
 from aegisscan.reports import render_html_report
 from aegisscan.scanner import ScanConfig, scan
 from aegisscan.storage import load_scan, recent_scans, save_scan
 
 MAX_REQUEST_BYTES = 32_768
+MAX_ACTIVE_JOBS = 2
+MAX_RETAINED_JOBS = 100
 
 
 class ScanManager:
     def __init__(self) -> None:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+        self._active_jobs = 0
 
     def start(self, payload: dict[str, Any]) -> str:
         targets_value = payload.get("targets", [])
@@ -32,6 +36,8 @@ class ScanManager:
             targets = targets_value
         else:
             raise ValueError("targets must be a string or list of strings")
+        if not targets or any(not target.strip() for target in targets):
+            raise ValueError("At least one non-empty target is required")
 
         ports = parse_ports(str(payload.get("ports", "default")))
         authorized = payload.get("authorized") is True
@@ -49,15 +55,34 @@ class ScanManager:
             authorized=authorized,
             allow_public=requested_public and server_allows_public,
             fingerprint=payload.get("fingerprint", True) is not False,
+            environment=str(payload.get("environment", "unknown")),
+            asset_criticality=str(payload.get("asset_criticality", "standard")),
         )
         config.validate()
         job_id = str(uuid.uuid4())
         with self._lock:
+            if self._active_jobs >= MAX_ACTIVE_JOBS:
+                raise ValueError(
+                    f"At most {MAX_ACTIVE_JOBS} scans may run at once; wait for an active scan to finish"
+                )
+            while len(self._jobs) >= MAX_RETAINED_JOBS:
+                removable = next(
+                    (
+                        key
+                        for key, value in self._jobs.items()
+                        if value.get("status") in {"complete", "failed"}
+                    ),
+                    None,
+                )
+                if removable is None:
+                    raise ValueError("The in-memory scan queue is full")
+                self._jobs.pop(removable)
             self._jobs[job_id] = {
                 "job_id": job_id,
                 "status": "queued",
                 "progress": {"stage": "queued", "completed": 0, "total": 0, "percent": 0},
             }
+            self._active_jobs += 1
         thread = threading.Thread(target=self._execute, args=(job_id, config), daemon=True)
         thread.start()
         return job_id
@@ -100,6 +125,9 @@ class ScanManager:
                     "status": "failed",
                     "error": f"Unexpected scan error: {exc}",
                 }
+        finally:
+            with self._lock:
+                self._active_jobs = max(0, self._active_jobs - 1)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -111,7 +139,7 @@ MANAGER = ScanManager()
 
 
 class AegisHandler(BaseHTTPRequestHandler):
-    server_version = "AegisScan/1.0"
+    server_version = f"AegisScan/{__version__}"
 
     def _security_headers(self, content_type: str, length: int, *, cache: bool = False) -> None:
         self.send_header("Content-Type", content_type)
@@ -119,6 +147,9 @@ class AegisHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; "
@@ -145,6 +176,8 @@ class AegisHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
@@ -168,10 +201,12 @@ class AegisHandler(BaseHTTPRequestHandler):
             self._static("index.html", "text/html; charset=utf-8")
         elif path == "/static/app.css":
             self._static("app.css", "text/css; charset=utf-8")
+        elif path == "/static/context.css":
+            self._static("context.css", "text/css; charset=utf-8")
         elif path == "/static/app.js":
             self._static("app.js", "text/javascript; charset=utf-8")
         elif path == "/api/health":
-            self._send_json({"status": "ok", "service": "AegisScan", "version": "1.0.0"})
+            self._send_json({"status": "ok", "service": "AegisScan", "version": __version__})
         elif path == "/api/scans":
             self._send_json({"scans": recent_scans()})
         elif path.startswith("/api/scans/"):
@@ -203,6 +238,13 @@ class AegisHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
         try:
+            fetch_site = self.headers.get("Sec-Fetch-Site", "")
+            if fetch_site == "cross-site":
+                raise ValueError("Cross-site scan requests are not permitted")
+            origin = self.headers.get("Origin")
+            host = self.headers.get("Host")
+            if origin and (urlparse(origin).netloc != host or urlparse(origin).scheme not in {"http", "https"}):
+                raise ValueError("Request origin does not match this dashboard")
             length = int(self.headers.get("Content-Length", "0"))
             if not 1 <= length <= MAX_REQUEST_BYTES:
                 raise ValueError("Request body is empty or too large")

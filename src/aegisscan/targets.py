@@ -41,7 +41,7 @@ def _resolve_hostname(name: str) -> list[Target]:
     for family, _socktype, _proto, _canonname, sockaddr in records:
         if family not in {socket.AF_INET, socket.AF_INET6}:
             continue
-        address = sockaddr[0]
+        address = str(sockaddr[0])
         if address in seen:
             continue
         seen.add(address)
@@ -104,4 +104,3 @@ def enforce_authorization(
             f"Public targets are blocked by default ({preview}{suffix}). "
             "Use the explicit public-target opt-in only with written authorization."
         )
-

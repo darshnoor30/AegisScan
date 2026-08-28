@@ -1,0 +1,53 @@
+.field-wrap select {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.field-wrap select option {
+  background: #0d1524;
+  color: var(--ink);
+}
+
+.context-fields label {
+  margin-top: 14px;
+}
+
+.severity-badge.low {
+  background: rgba(97, 231, 213, 0.12);
+  color: #8df0e2;
+}
+
+.severity-badge.informational {
+  background: rgba(106, 159, 255, 0.12);
+  color: #a9c8ff;
+}
+
+.risk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.risk-meta span {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 2px 6px;
+  color: #93a5c2;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.score-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 9px;
+}

@@ -13,8 +13,9 @@ between the dashboard and CLI.
 | `targets.py` | Resolve hosts and expand CIDRs | Deduplicate addresses; cap the resolved scope; block public targets unless explicitly enabled |
 | `ports.py` | Parse presets, ports, and ranges | Reject malformed and oversized expressions before network activity |
 | `scanner.py` | Coordinate probes and progress | Bounded queue prevents a full target×port task explosion |
-| `probes.py` | Identify reachable services | Minimal protocol-aware requests; no authentication or exploitation |
-| `intelligence.py` | Prioritize observed exposure | Evidence-based rules; public reachability promotes priority; open ≠ vulnerable |
+| `probes.py` | Identify reachable services | Preserve port hints separately; promote identity only after conservative protocol evidence |
+| `intelligence.py` | Prioritize observed exposure | Base rules adjusted by scope, confidence, environment, and asset criticality |
+| `benchmark.py` | Measure core behavior | Temporary loopback ground truth; no downloaded dataset or external target |
 | `reports.py` | Human and automation outputs | One canonical document powers JSON, CSV, SARIF, and escaped HTML |
 | `storage.py` | Maintain local scan history | Atomic replacement avoids partial JSON files |
 | `diff.py` | Compare two results | New, closed, and fingerprint-changed services are separate events |
@@ -36,7 +37,7 @@ sequenceDiagram
         Target-->>Engine: Reachability + latency
         opt Open and known protocol
             Engine->>Target: Minimal fingerprint probe
-            Target-->>Engine: HTTP, TLS, or banner evidence
+            Target-->>Engine: HTTP, TLS, Redis, or banner evidence
         end
     end
     Engine->>Intel: Structured observations
@@ -69,14 +70,15 @@ coroutines from being created for a large but permitted scope. Limits are enforc
 The canonical JSON result keeps three layers distinct:
 
 1. **Observation** — address, port, state, latency, and protocol evidence.
-2. **Finding** — policy interpretation with confidence, impact, and action.
-3. **Summary** — score, severity counts, and scan metadata.
+2. **Identity** — port hint, selected service, confidence, classification method, and evidence.
+3. **Finding** — base/effective severity, context factors, impact, and action.
+4. **Summary** — posture, scope/identity counts, context, and scan metadata.
 
 This separation allows rule evolution without altering historical raw evidence.
 
-## Exposure score
+## Contextual posture
 
-The score starts at 100 and applies transparent weights: critical 25, high 14, medium 7, low 3,
-informational 0, capped at a total deduction of 100. It is a prioritization aid, not a compliance
-result or probability of compromise. The raw findings remain the source of truth.
-
+The effective severity is derived from a service rule plus explicit scope, confidence, environment,
+and criticality adjustments. The score starts at 100 and applies transparent weights: critical 25,
+high 15, medium 7, low 3, informational 0, capped at 100 total deduction. It is a prioritization aid,
+not compliance status or compromise probability. See [RISK_MODEL.md](RISK_MODEL.md).

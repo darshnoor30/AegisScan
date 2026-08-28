@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -11,15 +12,34 @@ class Target:
     family: int
     is_public: bool
 
+    @property
+    def network_scope(self) -> str:
+        """Return the reachability context used by the exposure model."""
+        address = ipaddress.ip_address(self.address)
+        if address.is_loopback:
+            return "loopback"
+        if address.is_link_local:
+            return "link-local"
+        if address.is_global:
+            return "public"
+        if address.is_private:
+            return "private"
+        return "special"
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["family"] = "IPv6" if self.family == 10 else "IPv4"
+        data["network_scope"] = self.network_scope
         return data
 
 
 @dataclass(slots=True)
 class Fingerprint:
     service: str = "unknown"
+    port_hint: str = "unknown"
+    confidence: str = "low"
+    classification_method: str = "unverified"
+    evidence: list[str] = field(default_factory=list)
     product: str | None = None
     banner: str | None = None
     http: dict[str, Any] | None = None
@@ -58,6 +78,10 @@ class Finding:
     evidence: str
     impact: str
     recommendation: str
+    base_severity: str
+    network_scope: str
+    risk_factors: list[str]
+    score_deduction: int
     references: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -92,4 +116,3 @@ class ScanResult:
             "findings": [item.to_dict() for item in self.findings],
             "summary": self.summary,
         }
-

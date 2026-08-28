@@ -36,6 +36,8 @@ $("#scan-form").addEventListener("submit", async (event) => {
         ports: $("#ports").value.trim(),
         timeout: Number($("#timeout").value),
         concurrency: Number($("#concurrency").value),
+        environment: $("#environment").value,
+        asset_criticality: $("#criticality").value,
         authorized: true,
         fingerprint: true
       })
@@ -106,9 +108,9 @@ function renderResult(result, reportId) {
   const scoreColor = score >= 80 ? "var(--cyan)" : score >= 60 ? "var(--medium)" : "var(--critical)";
   $("#score-ring").style.background = `conic-gradient(${scoreColor} ${score}%, #1b2638 ${score}% 100%)`;
   $("#score-value").textContent = score;
-  $("#grade-pill").textContent = `Grade ${summary.grade}`;
-  $("#score-title").textContent = summary.findings ? "Prioritized action required" : "No priority exposure found";
-  $("#score-description").textContent = `${summary.open_ports} open service${summary.open_ports === 1 ? "" : "s"} and ${summary.findings} prioritized finding${summary.findings === 1 ? "" : "s"}.`;
+  $("#grade-pill").textContent = `Posture ${summary.grade} · ${summary.posture}`;
+  $("#score-title").textContent = summary.actionable_findings ? "Prioritized action required" : "No priority exposure found";
+  $("#score-description").textContent = `${summary.open_ports} open service${summary.open_ports === 1 ? "" : "s"}, ${summary.verified_services || 0} verified identity, and ${summary.findings} contextual finding${summary.findings === 1 ? "" : "s"}.`;
   $("#report-link").href = `/reports/${encodeURIComponent(result.scan_id || reportId)}.html`;
 
   $("#results").hidden = false;
@@ -116,31 +118,32 @@ function renderResult(result, reportId) {
   $("#kpi-assets").textContent = summary.targets;
   $("#kpi-probes").textContent = summary.probes_total.toLocaleString();
   $("#kpi-open").textContent = summary.open_ports;
-  $("#kpi-findings").textContent = summary.findings;
-  renderServices(result.observations || []);
+  $("#kpi-findings").textContent = summary.actionable_findings ?? summary.findings;
+  renderServices(result.observations || [], result.assets || []);
   renderFindings(result.findings || [], summary.severity_counts || {});
   $("#results").scrollIntoView({behavior:"smooth", block:"start"});
 }
 
-function renderServices(items) {
+function renderServices(items, assets) {
+  const scopes = Object.fromEntries(assets.map((asset) => [asset.address, asset.network_scope || "unknown"]));
   $("#service-count").textContent = `${items.length} endpoint${items.length === 1 ? "" : "s"}`;
   if (!items.length) {
-    $("#services-body").innerHTML = '<tr><td class="table-empty" colspan="5">No open TCP services observed in this scope.</td></tr>';
+    $("#services-body").innerHTML = '<tr><td class="table-empty" colspan="7">No open TCP services observed in this scope.</td></tr>';
     return;
   }
   $("#services-body").innerHTML = items.map((item) => {
     const fp = item.fingerprint || {};
-    const evidence = fp.product || fp.banner || fp.http?.title || "Reachability confirmed";
-    return `<tr><td class="mono">${esc(item.address)}</td><td><span class="service-pill">${esc(item.port)}/tcp</span></td><td>${esc(fp.service || "unknown")}</td><td title="${esc(evidence)}">${esc(String(evidence).slice(0, 42))}</td><td>${esc(item.latency_ms)} ms</td></tr>`;
+    const evidence = fp.product || fp.banner || fp.http?.title || fp.evidence?.[0] || "Reachability confirmed";
+    return `<tr><td class="mono">${esc(item.address)}</td><td><span class="service-pill">${esc(item.port)}/tcp</span></td><td>${esc(fp.service || "unknown")}</td><td>${esc(fp.confidence || "low")}<br><small>${esc(fp.classification_method || "unverified")}</small></td><td>${esc(scopes[item.address] || "unknown")}</td><td title="${esc(evidence)}">${esc(String(evidence).slice(0, 42))}</td><td>${esc(item.latency_ms)} ms</td></tr>`;
   }).join("");
 }
 
 function renderFindings(items, counts) {
-  const order = ["critical", "high", "medium"];
+  const order = ["critical", "high", "medium", "low", "informational"];
   $("#severity-summary").innerHTML = order.filter((severity) => counts[severity]).map((severity) => `<span title="${severity}">${counts[severity]}<i class="severity-dot ${severity}"></i></span>`).join(" ");
   if (!items.length) {
     $("#findings-list").innerHTML = '<div class="table-empty">No prioritized exposure findings. Review the service inventory against intended architecture.</div>';
     return;
   }
-  $("#findings-list").innerHTML = items.map((item) => `<article class="finding"><div class="finding-top"><span class="severity-badge ${esc(item.severity)}">${esc(item.severity)}</span><code>${esc(item.address)}:${esc(item.port)}</code></div><h4>${esc(item.title)}</h4><p>${esc(item.evidence)}</p><details><summary>Impact and remediation</summary><p><strong>Impact:</strong> ${esc(item.impact)}</p><p><strong>Action:</strong> ${esc(item.recommendation)}</p></details></article>`).join("");
+  $("#findings-list").innerHTML = items.map((item) => `<article class="finding"><div class="finding-top"><span class="severity-badge ${esc(item.severity)}">${esc(item.severity)}</span><code>${esc(item.address)}:${esc(item.port)}</code></div><h4>${esc(item.title)}</h4><div class="risk-meta"><span>base ${esc(item.base_severity)}</span><span>${esc(item.confidence)} confidence</span><span>${esc(item.network_scope)}</span><span>−${esc(item.score_deduction)} points</span></div><p>${esc(item.evidence)}</p><details><summary>Why this priority and how to remediate</summary><p><strong>Risk factors:</strong> ${esc((item.risk_factors || []).join(" "))}</p><p><strong>Impact:</strong> ${esc(item.impact)}</p><p><strong>Action:</strong> ${esc(item.recommendation)}</p></details></article>`).join("");
 }

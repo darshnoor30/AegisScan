@@ -55,7 +55,7 @@ SERVICE_OVERRIDES = {
     27017: "mongodb",
 }
 
-HTTP_PORTS = {80, 3000, 3001, 5000, 5985, 8000, 8008, 8080, 8081, 8888, 9200}
+HTTP_PORTS = {80, 2375, 3000, 3001, 5000, 5985, 8000, 8008, 8080, 8081, 8888, 9200}
 TLS_PORTS = {443, 465, 993, 995, 5986, 6443, 8443}
 SERVER_FIRST_PORTS = {21, 22, 25, 110, 143, 3306, 5900}
 
@@ -67,6 +67,23 @@ def service_name(port: int) -> str:
         return socket.getservbyport(port, "tcp")
     except OSError:
         return "unknown"
+
+
+def port_fingerprint(port: int) -> Fingerprint:
+    """Create an explicit low-confidence port-registry hint."""
+    hint = service_name(port)
+    evidence = []
+    method = "unverified"
+    if hint != "unknown":
+        evidence.append(f"Port {port}/tcp is commonly registered or associated with {hint}.")
+        method = "port-registry"
+    return Fingerprint(
+        service=hint,
+        port_hint=hint,
+        confidence="low",
+        classification_method=method,
+        evidence=evidence,
+    )
 
 
 def _clean_text(payload: bytes, limit: int = 300) -> str | None:
@@ -90,7 +107,7 @@ async def _read_banner(target: Target, port: int, timeout: float) -> str | None:
             asyncio.open_connection(target.address, port, family=target.family), timeout=timeout
         )
         try:
-            payload = await asyncio.wait_for(reader.read(512), timeout=min(timeout, 1.0))
+            payload = await asyncio.wait_for(reader.read(512), timeout=min(timeout, 0.45))
             return _clean_text(payload)
         finally:
             writer.close()
@@ -99,11 +116,36 @@ async def _read_banner(target: Target, port: int, timeout: float) -> str | None:
         return None
 
 
+def identify_banner(banner: str) -> tuple[str | None, str | None]:
+    """Classify conservative, high-signal server-first protocol banners."""
+    normalized = banner.strip()
+    lowered = normalized.lower()
+    if normalized.startswith("SSH-"):
+        return "ssh", normalized[:120]
+    if normalized.startswith("RFB "):
+        return "vnc", normalized[:120]
+    if "mysql_native_password" in lowered or "mariadb" in lowered:
+        return "mysql", normalized[:120]
+    if lowered.startswith("+pong") or lowered.startswith("-noauth"):
+        return "redis", normalized[:120]
+    if lowered.startswith("+ok"):
+        return "pop3", normalized[:120]
+    if lowered.startswith("* ok"):
+        return "imap", normalized[:120]
+    if normalized.startswith("220") and ("smtp" in lowered or "esmtp" in lowered):
+        return "smtp", normalized[:120]
+    if normalized.startswith("220") and "ftp" in lowered:
+        return "ftp", normalized[:120]
+    return None, None
+
+
 def _parse_http(payload: bytes) -> dict[str, Any]:
     text = payload.decode("iso-8859-1", errors="replace")
     head, _, body = text.partition("\r\n\r\n")
     lines = head.splitlines()
-    status = lines[0][:160] if lines else None
+    if not lines or not re.match(r"^HTTP/\d(?:\.\d)?\s+\d{3}(?:\s|$)", lines[0]):
+        return {}
+    status = lines[0][:160]
     headers: dict[str, str] = {}
     for line in lines[1:]:
         key, separator, value = line.partition(":")
@@ -113,15 +155,38 @@ def _parse_http(payload: bytes) -> dict[str, Any]:
     title = None
     if title_match:
         title = html.unescape(re.sub(r"\s+", " ", title_match.group(1))).strip()[:160]
+
+    detected_service = "http"
+    server = headers.get("server", "")
+    if headers.get("x-elastic-product", "").lower() == "elasticsearch":
+        detected_service = "elasticsearch"
+    elif "splunkd" in server.lower():
+        detected_service = "splunk"
+    elif "docker" in server.lower() or "docker api" in body[:500].lower():
+        detected_service = "docker-api"
+
+    security_headers = {
+        "strict_transport_security": bool(headers.get("strict-transport-security")),
+        "content_security_policy": bool(headers.get("content-security-policy")),
+        "x_content_type_options": headers.get("x-content-type-options", "").lower() == "nosniff",
+        "frame_protection": bool(
+            headers.get("x-frame-options")
+            or "frame-ancestors" in headers.get("content-security-policy", "").lower()
+        ),
+        "referrer_policy": bool(headers.get("referrer-policy")),
+    }
     return {
         key: value
         for key, value in {
             "status": status,
-            "server": headers.get("server"),
+            "server": server or None,
             "content_type": headers.get("content-type"),
             "title": title,
+            "location": headers.get("location"),
+            "detected_service": detected_service,
+            "security_headers": security_headers,
         }.items()
-        if value
+        if value is not None
     }
 
 
@@ -150,13 +215,14 @@ async def _probe_http(
             host = _hostname_label(target) or target.address
             request = (
                 f"GET / HTTP/1.0\r\nHost: {host}\r\n"
-                "User-Agent: AegisScan/1.0 (authorized-security-audit)\r\n"
-                "Accept: text/html,*/*;q=0.1\r\nConnection: close\r\n\r\n"
+                "User-Agent: AegisScan/1.1 (authorized-security-audit)\r\n"
+                "Accept: text/html,application/json,*/*;q=0.1\r\nConnection: close\r\n\r\n"
             )
             writer.write(request.encode("ascii", errors="ignore"))
             await writer.drain()
             payload = await asyncio.wait_for(reader.read(32_768), timeout=timeout)
-            return _parse_http(payload) if payload else None
+            parsed = _parse_http(payload) if payload else {}
+            return parsed or None
         finally:
             writer.close()
             await writer.wait_closed()
@@ -184,6 +250,12 @@ def _decode_certificate(der_bytes: bytes) -> dict[str, Any]:
         certificate = x509.load_der_x509_certificate(der_bytes)
         now = datetime.now(UTC)
         expires = certificate.not_valid_after_utc
+        names: list[str] = []
+        try:
+            extension = certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            names = extension.value.get_values_for_type(x509.DNSName)[:25]
+        except x509.ExtensionNotFound:
+            pass
         result.update(
             {
                 "subject": certificate.subject.rfc4514_string()[:500],
@@ -192,6 +264,7 @@ def _decode_certificate(der_bytes: bytes) -> dict[str, Any]:
                 "not_before": certificate.not_valid_before_utc.isoformat(),
                 "not_after": expires.isoformat(),
                 "days_until_expiry": (expires - now).days,
+                "dns_names": names,
             }
         )
     except (ImportError, ValueError):
@@ -237,21 +310,130 @@ async def _probe_tls(target: Target, port: int, timeout: float) -> dict[str, Any
         return None
 
 
+async def _probe_redis(target: Target, port: int, timeout: float) -> str | None:
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(target.address, port, family=target.family), timeout=timeout
+        )
+        try:
+            writer.write(b"*1\r\n$4\r\nPING\r\n")
+            await writer.drain()
+            payload = await asyncio.wait_for(reader.read(256), timeout=timeout)
+            text = _clean_text(payload, limit=160)
+            if text and (text.lower().startswith("+pong") or text.lower().startswith("-noauth")):
+                return text
+            return None
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    except (TimeoutError, ConnectionError, OSError):
+        return None
+
+
+def _confirm(
+    fingerprint: Fingerprint,
+    *,
+    service: str,
+    method: str,
+    evidence: str,
+    product: str | None = None,
+) -> None:
+    fingerprint.service = service
+    fingerprint.confidence = "high"
+    fingerprint.classification_method = method
+    fingerprint.evidence.append(evidence)
+    if product:
+        fingerprint.product = product[:120]
+
+
 async def fingerprint_endpoint(target: Target, port: int, timeout: float) -> Fingerprint:
-    """Perform minimal, protocol-aware identification without exploitation."""
-    fingerprint = Fingerprint(service=service_name(port))
-    if port in SERVER_FIRST_PORTS:
-        fingerprint.banner = await _read_banner(target, port, timeout)
+    """Perform bounded, non-authenticated protocol identification without exploitation."""
+    fingerprint = port_fingerprint(port)
+    probe_timeout = min(timeout, 0.8)
+
+    if fingerprint.port_hint == "redis":
+        redis_evidence = await _probe_redis(target, port, probe_timeout)
+        if redis_evidence:
+            fingerprint.banner = redis_evidence
+            _confirm(
+                fingerprint,
+                service="redis",
+                method="redis-ping",
+                evidence="Redis responded to a non-authenticated PING probe.",
+                product=redis_evidence,
+            )
+            return fingerprint
+
+    should_read_banner = (
+        port in SERVER_FIRST_PORTS or (port not in HTTP_PORTS and port not in TLS_PORTS)
+    )
+    if should_read_banner:
+        fingerprint.banner = await _read_banner(target, port, probe_timeout)
         if fingerprint.banner:
-            fingerprint.product = fingerprint.banner[:120]
+            service, product = identify_banner(fingerprint.banner)
+            if service:
+                _confirm(
+                    fingerprint,
+                    service=service,
+                    method="protocol-banner",
+                    evidence=f"A protocol signature in the server-first banner confirmed {service}.",
+                    product=product,
+                )
+                return fingerprint
+            fingerprint.evidence.append("A server-first banner was collected but not classified.")
 
     if port in TLS_PORTS:
-        fingerprint.tls = await _probe_tls(target, port, timeout)
-        if port in {443, 5986, 6443, 8443}:
-            fingerprint.http = await _probe_http(target, port, timeout, use_tls=True)
-    elif port in HTTP_PORTS:
-        fingerprint.http = await _probe_http(target, port, timeout, use_tls=False)
+        fingerprint.tls = await _probe_tls(target, port, probe_timeout)
+        if fingerprint.tls:
+            fingerprint.confidence = "medium"
+            fingerprint.classification_method = "tls-handshake"
+            fingerprint.evidence.append(
+                f"A TLS handshake succeeded using {fingerprint.tls.get('protocol', 'an unknown version')}."
+            )
+            fingerprint.http = await _probe_http(target, port, probe_timeout, use_tls=True)
+            if fingerprint.http:
+                detected = str(fingerprint.http.get("detected_service", "http"))
+                service = "https" if detected == "http" else detected
+                _confirm(
+                    fingerprint,
+                    service=service,
+                    method="https-response",
+                    evidence="A valid HTTP response was received over the negotiated TLS connection.",
+                    product=str(fingerprint.http.get("server") or "") or None,
+                )
+        return fingerprint
 
-    if fingerprint.http and fingerprint.http.get("server"):
-        fingerprint.product = str(fingerprint.http["server"])
+    should_probe_http = port in HTTP_PORTS or fingerprint.port_hint == "unknown" or port >= 1024
+    if should_probe_http:
+        fingerprint.http = await _probe_http(target, port, probe_timeout, use_tls=False)
+        if fingerprint.http:
+            detected = str(fingerprint.http.get("detected_service", "http"))
+            _confirm(
+                fingerprint,
+                service=detected,
+                method="http-response",
+                evidence="A syntactically valid HTTP response confirmed an HTTP-family service.",
+                product=str(fingerprint.http.get("server") or "") or None,
+            )
+            return fingerprint
+
+    if fingerprint.port_hint == "unknown" and port >= 1024:
+        fingerprint.tls = await _probe_tls(target, port, probe_timeout)
+        if fingerprint.tls:
+            fingerprint.service = "tls"
+            fingerprint.confidence = "medium"
+            fingerprint.classification_method = "tls-handshake"
+            fingerprint.evidence.append(
+                f"A TLS handshake succeeded using {fingerprint.tls.get('protocol', 'an unknown version')}."
+            )
+            fingerprint.http = await _probe_http(target, port, probe_timeout, use_tls=True)
+            if fingerprint.http:
+                detected = str(fingerprint.http.get("detected_service", "http"))
+                _confirm(
+                    fingerprint,
+                    service="https" if detected == "http" else detected,
+                    method="https-response",
+                    evidence="A valid HTTP response was received over the negotiated TLS connection.",
+                    product=str(fingerprint.http.get("server") or "") or None,
+                )
     return fingerprint

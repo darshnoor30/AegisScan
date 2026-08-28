@@ -2,14 +2,16 @@
 
 **Authorized attack-surface discovery and evidence-based port intelligence.**
 
-[![CI](https://img.shields.io/badge/CI-tested-53e0a1?style=flat-square)](./.github/workflows/ci.yml)
+[![CI](https://github.com/darshnoor30/AegisScan/actions/workflows/ci.yml/badge.svg)](https://github.com/darshnoor30/AegisScan/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/darshnoor30/AegisScan/actions/workflows/codeql.yml/badge.svg)](https://github.com/darshnoor30/AegisScan/actions/workflows/codeql.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-6aa6ff?style=flat-square)](pyproject.toml)
+[![Coverage](https://img.shields.io/badge/coverage-81%25-53e0a1?style=flat-square)](docs/VERIFICATION.md)
 [![License](https://img.shields.io/badge/license-MIT-987cff?style=flat-square)](LICENSE)
 [![Safety](https://img.shields.io/badge/public_scanning-blocked_by_default-ffcc66?style=flat-square)](SECURITY.md)
 
-AegisScan is more than a “which ports are open?” script. It models a real security workflow:
-define authorized scope, collect defensible evidence, prioritize exposure, compare drift, and hand
-an owner a report they can act on. The scanner uses standard TCP connections and runs without root.
+AegisScan models a real defensive workflow: define authorized scope, collect defensible evidence,
+separate service hints from verified identity, prioritize exposure in context, compare drift, and
+hand an owner a report they can act on. It uses standard TCP connections and runs without root.
 
 > **Responsible use:** Scan only assets you own or have explicit permission to assess. An open port
 > is an exposure signal—not proof of a vulnerability.
@@ -18,19 +20,21 @@ an owner a report they can act on. The scanner uses standard TCP connections and
 
 | Capability | Engineering value |
 | --- | --- |
-| Bounded async scan engine | Demonstrates networking, queues, concurrency, timeouts, IPv4/IPv6, and failure handling |
-| Safe protocol fingerprints | Collects HTTP metadata, TLS evidence, certificate lifecycle, and server-first banners |
-| Explainable exposure model | Every finding includes confidence, evidence, impact, and remediation—no fake CVE claims |
-| Drift detection | Detects new, closed, and changed services between two approved assessments |
-| Operational reports | Produces JSON, CSV, standalone HTML, and SARIF for people, automation, and CI |
-| Local dashboard + CLI | Supports analysts and pipelines from the same tested engine, with zero mandatory dependencies |
-| Product safety controls | Authorization gate, public-target opt-in, scope caps, rate controls, and non-root container |
-| Production scaffolding | Tests, CI, threat model, secure container, contribution policy, versioned schema, and docs |
+| Bounded async scan engine | Queues, backpressure, concurrency, timeouts, IPv4/IPv6, CIDR, and failure handling |
+| Evidence-ranked identity | Distinguishes low-confidence port hints from protocol-confirmed HTTP, HTTPS, SSH, VNC, Redis, and banner evidence |
+| Contextual Exposure Model v2 | Adjusts base priority by loopback/private/public scope, confidence, environment, and asset criticality |
+| False-positive resistance | Confirmed HTTP on port 27017 overrides the MongoDB port hint; non-standard SSH/HTTP can still be identified |
+| Drift detection | Detects new, closed, and fingerprint-changed services between approved assessments |
+| Operational reports | Emits versioned JSON, CSV, standalone HTML, and SARIF for analysts, owners, CI, and automation |
+| Measured benchmark | Verifies TCP state and non-standard-port identification against deterministic loopback ground truth |
+| Safe local product | Authorization, public-scope opt-in, origin checks, active-job caps, resource limits, and non-root container |
+| Production scaffolding | 46 tests, 81% coverage, Ruff, mypy, CI, CodeQL, Dependabot, schema, threat model, and secure container |
 
-## See it working in 60 seconds
+## See it working
 
 The demo starts a temporary HTTP service on **your own loopback interface**, scans it for real,
-generates four reports, and shuts the service down.
+generates four reports, and shuts it down. The benchmark independently creates known HTTP, SSH, and
+closed-port ground truth.
 
 ### Windows PowerShell
 
@@ -39,10 +43,9 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[tls]"
 aegisscan demo --output reports/demo
+aegisscan benchmark --output reports/benchmark.json
 aegisscan serve
 ```
-
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765) after the final command.
 
 ### macOS / Linux
 
@@ -51,15 +54,18 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[tls]"
 aegisscan demo --output reports/demo
+aegisscan benchmark --output reports/benchmark.json
 aegisscan serve
 ```
 
-The core CLI and dashboard have no mandatory third-party runtime dependency. The optional `tls`
-extra adds X.509 subject, issuer, validity, serial number, and expiry intelligence.
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765) after the final command.
+
+The core scanner and dashboard have no mandatory third-party runtime dependency. The optional
+`tls` extra adds X.509 subject, issuer, validity, SAN, serial-number, and expiry intelligence.
 
 ## Real scan examples
 
-Private or loopback scope:
+Private or loopback scope with explicit risk context:
 
 ```bash
 aegisscan scan \
@@ -67,114 +73,151 @@ aegisscan scan \
   --ports default \
   --timeout 0.8 \
   --concurrency 150 \
+  --environment production \
+  --asset-criticality high \
   --i-own-or-have-permission \
   --output reports/server-01
 ```
 
-Multiple targets and an explicit port expression:
+Multiple targets and a port expression:
 
 ```bash
 aegisscan scan -t 10.10.20.0/29 -t db.internal.example \
   -p 22,80,443,3306,5432,8000-8010 \
+  --environment staging --asset-criticality standard \
   --i-own-or-have-permission -o reports/approved-change-window
 ```
 
-Globally routable targets are deliberately blocked unless the CLI receives both the authorization
-acknowledgement and `--allow-public`. The dashboard additionally requires its server-side public-scope
-policy to be enabled. See [SECURITY.md](SECURITY.md).
+Globally routable targets are blocked unless the CLI receives both the authorization
+acknowledgement and `--allow-public`. The dashboard additionally requires its server-side
+`AEGISSCAN_ALLOW_PUBLIC=true` policy. See [SECURITY.md](SECURITY.md).
 
-## Port expressions and presets
+## Evidence and risk semantics
 
-Use `22,80,443`, `8000-8010`, or one of these presets:
+AegisScan deliberately keeps four concepts separate:
 
-- `default` — common infrastructure, web, remote-access, database, and management ports;
-- `web` — HTTP/HTTPS and common development/application ports;
-- `remote` — SSH, Telnet, RDP, VNC, and WinRM;
-- `database` — relational, cache, search, and document stores;
-- `mail` — SMTP, submission, POP3, and IMAP variants.
+1. **Reachability** — a TCP connection completed from this scanner's network location.
+2. **Port hint** — the port is commonly associated with a service; this is low-confidence evidence.
+3. **Verified identity** — a valid protocol response or conservative signature confirmed a service,
+   including selected services on non-standard ports.
+4. **Contextual priority** — base severity is adjusted by network scope, confidence, environment,
+   and asset criticality. Every adjustment is included in `risk_factors`.
 
-Each scan is capped at 256 resolved targets and 2,048 unique ports. Concurrency is capped at 500.
+This prevents a loopback-only port hint from receiving the same priority as a confirmed public
+production service. It also prevents a process on port 27017 from being called MongoDB after HTTP
+evidence proves otherwise. Read the complete [risk model](docs/RISK_MODEL.md).
 
-## Output that security teams can use
+The 0–100 posture index is a transparent prioritization aid. It is **not** a compliance grade,
+probability of compromise, or replacement for the underlying evidence.
+
+## Reproducible benchmark
+
+```bash
+aegisscan benchmark --output reports/benchmark.json
+```
+
+The v1.1 release benchmark passes its declared loopback matrix with:
+
+- 100% TCP-state accuracy for two open services and one closed port;
+- 100% service-identification accuracy for generated HTTP and SSH services on non-standard ports;
+- zero false service claims within that matrix.
+
+These figures apply only to the published deterministic test. They are not an Internet-wide
+detection-rate claim. The [methodology and limitations](docs/BENCHMARK.md) are explicit so the
+numbers cannot be presented out of context.
+
+## Reports and drift
 
 One scan produces:
 
-- `report.json` — canonical, versioned result for automation and baselines;
-- `report.csv` — service inventory for triage or spreadsheet analysis;
-- `report.html` — self-contained executive/technical report that works offline;
-- `report.sarif.json` — security findings consumable by SARIF-aware engineering workflows.
+- `report.json` — canonical, versioned evidence and contextual findings;
+- `report.csv` — service inventory with identity confidence and classification method;
+- `report.html` — self-contained executive and technical report;
+- `report.sarif.json` — findings for SARIF-aware engineering workflows.
 
-Compare an earlier approved baseline with a current scan:
+Compare an approved baseline with a current scan:
 
 ```bash
 aegisscan diff --baseline reports/baseline.json --current reports/current.json \
   --output reports/drift.json
 ```
 
-The command returns exit code `2` when a new or fingerprint-changed service is found, making it useful
-as an exposure gate in controlled CI or change-management workflows.
+The command returns exit code `2` when a new or fingerprint-changed service is found, making it
+usable as an exposure gate in controlled CI and change-management workflows.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A["CLI or local dashboard"] --> B["Scope and authorization policy"]
-    B --> C["Target and port expansion"]
-    C --> D["Bounded async TCP workers"]
-    D --> E["Safe service fingerprints"]
-    E --> F["Explainable exposure model"]
-    F --> G["JSON • CSV • HTML • SARIF"]
-    G --> H["Baseline drift and remediation"]
+    A["CLI or dashboard"] --> B["Scope + authorization"]
+    B --> C["Bounded TCP workers"]
+    C --> D["Protocol evidence"]
+    D --> E["Identity confidence"]
+    E --> F["Contextual priority"]
+    F --> G["Reports + drift"]
 ```
 
-The CLI and dashboard call the same scanner, policy, intelligence, storage, and reporting modules.
-That keeps security decisions consistent across human and automated use. Read the detailed
-[architecture](docs/ARCHITECTURE.md) and [threat model](docs/THREAT_MODEL.md).
+The CLI and dashboard use the same scanner, policy, intelligence, storage, and reporting modules.
+Read the detailed [architecture](docs/ARCHITECTURE.md) and [threat model](docs/THREAT_MODEL.md).
 
-## What AegisScan intentionally does not do
+## Why there is no machine-learning model
 
-- no SYN/FIN/stealth scanning, packet fragmentation, or IDS evasion;
+TCP state and protocol identity are deterministic networking problems. Training a classifier on an
+unrelated intrusion-detection dataset would add complexity without improving these decisions. A
+future ML module would need task-matched historical exposure telemetry, a separately defined anomaly
+objective, labelled ground truth, and independent evaluation. AegisScan v1.1 favors testable
+evidence over decorative AI.
+
+## Intentional boundaries
+
+- no SYN/FIN/stealth scanning, packet fragmentation, IDS evasion, or raw sockets;
 - no exploitation, credentials, brute force, persistence, or destructive checks;
-- no unsupported “vulnerable” label based only on a port number;
-- no claim to replace Nmap, authenticated vulnerability scanners, or a formal penetration test.
+- no unsupported vulnerability or CVE claim based only on a port number;
+- no claim to replace Nmap, authenticated vulnerability scanners, or a penetration test.
 
-AegisScan is intentionally a strong **asset exposure and evidence pipeline**. Professional tools can
-validate findings more deeply after owners approve the next step.
+AegisScan is an **asset-exposure and evidence pipeline**. Deeper validation belongs to separately
+approved professional tools and asset-owner workflows.
 
-## Development
+## Development and verification
 
 ```bash
-make test
 make lint
+make typecheck
+make test
 make demo
+make benchmark
+make verify
 docker compose up --build
 ```
 
-The test suite includes parser boundaries, authorization policy, risk calculations, HTML escaping,
-drift semantics, and a real loopback integration scan. CI verifies Python 3.11/3.12, coverage,
-the demo report, and the production container. See the latest local [verification record](docs/VERIFICATION.md).
+The 46-test suite covers authorization, contextual risk, false-positive regressions, protocol
+parsing, non-standard service identity, CLI, storage, reports, dashboard/API behavior, drift, and
+real loopback scans. CI enforces at least 70% branch-aware coverage, Ruff, mypy, Python 3.11/3.12,
+schema and JavaScript validation, demo and benchmark execution, wheel building, and the production
+container. CodeQL and Dependabot add continuous security maintenance. See the
+[verification record](docs/VERIFICATION.md).
 
 ## Repository map
 
 ```text
 src/aegisscan/
 ├── scanner.py       bounded asynchronous TCP engine
-├── targets.py       IP, hostname, CIDR, and scope policy
-├── probes.py        safe HTTP, TLS, and banner evidence
-├── intelligence.py  explainable exposure findings and score
+├── targets.py       IP, hostname, CIDR, authorization, and scope policy
+├── probes.py        port hints plus HTTP, TLS, Redis, and banner evidence
+├── intelligence.py  contextual and auditable exposure priority
+├── benchmark.py     deterministic loopback ground-truth measurement
 ├── reports.py       JSON, CSV, SARIF, and offline HTML
 ├── diff.py          before/after service drift
 ├── storage.py       atomic local scan history
-├── web.py           dependency-free local API/dashboard server
+├── web.py           dependency-free local API and dashboard server
 └── static/          responsive analyst interface
 ```
 
 ## Portfolio and interview kit
 
-Use [docs/RECRUITER_BRIEF.md](docs/RECRUITER_BRIEF.md) for honest résumé bullets, a LinkedIn project
-description, a 90-second demo plan, and high-value interview talking points. Do not claim that the
-project detects vulnerabilities; explain the evidence-to-priority distinction—that is one of its
-strongest professional decisions.
+Use [docs/RECRUITER_BRIEF.md](docs/RECRUITER_BRIEF.md) for honest résumé bullets, a LinkedIn
+description, demo plan, and interview answers. Do not generalize the loopback benchmark into a
+production detection-rate claim or say the project detects vulnerabilities.
 
 ## License
 

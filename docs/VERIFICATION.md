@@ -1,45 +1,54 @@
 # Verification record
 
-**Release:** AegisScan 1.0.0  
-**Verified:** 2026-08-24  
-**Runtime:** Python 3.12
+**Release:** AegisScan 1.1.0  
+**Verified:** 2026-08-28  
+**Runtime:** Python 3.12.13
 
 ## Completed checks
 
 | Check | Result |
 | --- | --- |
-| Python source and test byte-compilation | Passed |
-| Unit and loopback integration tests | 19/19 passed |
-| Real local demo scan | Passed; one temporary HTTP service observed |
+| Ruff lint | Passed |
+| mypy static type check | Passed; no issues in 15 source files |
+| Automated tests | 46/46 passed |
+| Branch-aware coverage | 80.76%; enforced floor 70% |
+| Loopback ground-truth benchmark | Passed; 100% state and service identity within declared matrix |
+| False-positive regressions | Passed; loopback context and confirmed-service override |
+| Real local demo | Passed; temporary HTTP service observed and identified |
+| Dashboard/API end-to-end test | Passed; submit, poll, persist, retrieve, render |
+| Cross-site request rejection | Passed |
 | JSON, CSV, HTML, and SARIF generation | Passed |
-| Dashboard HTML/CSS/JS and health endpoint | Passed |
-| Dashboard scan submission and polling | Passed |
-| Persisted report retrieval by stable scan ID | Passed |
-| Dashboard/report security headers | Passed |
-| Missing-authorization rejection | Passed with expected exit code 2 |
+| Python source/test byte-compilation | Passed |
 | JSON result schema syntax | Passed |
-| Browser JavaScript syntax (`node --check`) | Passed |
+| Browser JavaScript syntax | Passed |
 | Editable installation and console entry point | Passed |
-| Python wheel build | Passed (`aegisscan-1.0.0-py3-none-any.whl`) |
+| Python wheel build | Passed |
 
-## Defect found and corrected during verification
+## Security-intelligence regressions
 
-The initial test run found that TLS certificate-expiry analysis only executed on ports that also had
-a predefined exposure rule. This could omit a certificate lifecycle finding on standard HTTPS port
-443. The analysis flow was corrected so TLS lifecycle evidence is evaluated independently of the
-port-exposure rule, and the regression test now passes.
+The v1.0 model could assign critical priority to a loopback-only service inferred solely from a
+default port. It also had no formal rule stating that protocol evidence must override a conflicting
+port hint. v1.1 adds regression tests for both:
+
+- inferred MongoDB on `127.0.0.1:27017` is low priority, not critical;
+- confirmed HTTP on port 27017 cannot generate a MongoDB finding;
+- confirmed SSH on a non-standard port is identified with high confidence;
+- public production context and asset criticality are reflected explicitly in risk factors.
 
 ## Commands
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-PYTHONPATH=src python -m compileall -q src tests
+ruff check src tests
+mypy src
+pytest --cov=aegisscan --cov-report=term-missing
+python -m compileall -q src tests
 node --check src/aegisscan/static/app.js
 python -m json.tool schemas/aegisscan-result.schema.json
-aegisscan demo --output /tmp/aegisscan-final-demo
-python -m pip wheel . --no-deps --no-build-isolation
+aegisscan demo --output reports/demo
+aegisscan benchmark --output reports/benchmark.json
+python -m pip wheel . --no-deps --wheel-dir dist
 ```
 
-Network-security behavior can vary by operating system, route, firewall, and source location. Repeat
-the loopback demo and an approved private-scope assessment in the intended deployment environment.
-
+Network-security behavior varies by operating system, route, firewall, and source location. Repeat
+the benchmark, demo, and an approved private-scope assessment in the intended deployment environment.
+The published 100% benchmark result is limited to its deterministic local matrix.

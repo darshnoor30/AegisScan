@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from aegisscan import __version__
+from aegisscan.benchmark import run_benchmark
 from aegisscan.demo import run_demo
 from aegisscan.diff import compare_scans
+from aegisscan.intelligence import VALID_CRITICALITIES, VALID_ENVIRONMENTS
 from aegisscan.ports import PRESETS, parse_ports
 from aegisscan.reports import write_report_bundle
 from aegisscan.scanner import ScanConfig, scan
@@ -35,6 +37,18 @@ def _parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--delay-ms", type=int, default=0, help="Worker delay after each probe")
     scan_parser.add_argument("--no-fingerprint", action="store_true", help="Disable service identification")
     scan_parser.add_argument(
+        "--environment",
+        choices=sorted(VALID_ENVIRONMENTS),
+        default="unknown",
+        help="Deployment context used by the explainable risk model",
+    )
+    scan_parser.add_argument(
+        "--asset-criticality",
+        choices=sorted(VALID_CRITICALITIES),
+        default="standard",
+        help="Business criticality used by the explainable risk model",
+    )
+    scan_parser.add_argument(
         "--i-own-or-have-permission",
         dest="authorized",
         action="store_true",
@@ -58,6 +72,13 @@ def _parser() -> argparse.ArgumentParser:
 
     demo_parser = subparsers.add_parser("demo", help="Run a verified scan against a temporary local service")
     demo_parser.add_argument("-o", "--output", default="reports/demo", help="Report path without extension")
+
+    benchmark_parser = subparsers.add_parser(
+        "benchmark", help="Measure scanner behavior against deterministic loopback ground truth"
+    )
+    benchmark_parser.add_argument(
+        "-o", "--output", default="reports/benchmark.json", help="Benchmark JSON destination"
+    )
     return parser
 
 
@@ -81,13 +102,16 @@ def _scan_command(args: argparse.Namespace) -> int:
         authorized=args.authorized,
         allow_public=args.allow_public,
         fingerprint=not args.no_fingerprint,
+        environment=args.environment,
+        asset_criticality=args.asset_criticality,
     )
     result = asyncio.run(scan(config, progress=_progress))
     document = result.to_dict()
     save_scan(document)
     paths = write_report_bundle(document, args.output)
     print(
-        f"Score {document['summary']['security_score']}/100 (grade {document['summary']['grade']}); "
+        f"Contextual posture {document['summary']['security_score']}/100 "
+        f"(grade {document['summary']['grade']}); "
         f"{document['summary']['open_ports']} open service(s), {document['summary']['findings']} finding(s)."
     )
     print("Reports:")
@@ -135,8 +159,17 @@ def main(argv: list[str] | None = None) -> int:
             for kind, path in paths.items():
                 print(f"  {kind.upper():5} {path.resolve()}")
             return 0
+        if args.command == "benchmark":
+            document = run_benchmark(args.output)
+            metrics = document["metrics"]
+            print(
+                f"Benchmark {document['status']}: TCP state accuracy "
+                f"{metrics['tcp_state_accuracy']:.0%}; service identification accuracy "
+                f"{metrics['service_identification_accuracy']:.0%}."
+            )
+            print(f"  JSON  {Path(args.output).resolve()}")
+            return 0 if document["status"] == "passed" else 1
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
     return 0
-
