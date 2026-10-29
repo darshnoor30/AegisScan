@@ -39,10 +39,15 @@ async def _ssh_handler(_reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     await writer.wait_closed()
 
 
-def _unused_loopback_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+def _reserve_closed_port() -> socket.socket:
+    # Bind without listening and retain ownership until the scan finishes.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
         sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    except OSError:
+        sock.close()
+        raise
+    return sock
 
 
 async def _run() -> dict[str, Any]:
@@ -50,9 +55,8 @@ async def _run() -> dict[str, Any]:
     ssh_server = await asyncio.start_server(_ssh_handler, "127.0.0.1", 0)
     http_port = int(http_server.sockets[0].getsockname()[1])
     ssh_port = int(ssh_server.sockets[0].getsockname()[1])
-    closed_port = _unused_loopback_port()
-    while closed_port in {http_port, ssh_port}:
-        closed_port = _unused_loopback_port()
+    closed_socket = _reserve_closed_port()
+    closed_port = int(closed_socket.getsockname()[1])
 
     expected = {http_port: "http", ssh_port: "ssh"}
     try:
@@ -60,7 +64,8 @@ async def _run() -> dict[str, Any]:
             ScanConfig(
                 targets=["127.0.0.1"],
                 ports=[http_port, ssh_port, closed_port],
-                timeout=0.6,
+                # Windows may take roughly two seconds to report refusal.
+                timeout=3.0,
                 concurrency=6,
                 authorized=True,
                 fingerprint=True,
@@ -69,6 +74,7 @@ async def _run() -> dict[str, Any]:
             )
         )
     finally:
+        closed_socket.close()
         http_server.close()
         ssh_server.close()
         await http_server.wait_closed()
