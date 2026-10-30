@@ -258,7 +258,7 @@ class AegisHandler(BaseHTTPRequestHandler):
                 {"job_id": job_id, "status": "queued", "status_url": f"/api/scans/{job_id}"},
                 HTTPStatus.ACCEPTED,
             )
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (ValueError, TypeError, OverflowError, json.JSONDecodeError) as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
     def log_message(self, message: str, *args: object) -> None:

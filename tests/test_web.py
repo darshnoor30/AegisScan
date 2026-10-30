@@ -64,6 +64,20 @@ class WebTests(unittest.TestCase):
             urllib.request.urlopen(request, timeout=3)
         self.assertEqual(captured.exception.code, 400)
 
+    def test_overflowing_numeric_input_returns_json_error(self) -> None:
+        # Valid JSON numeric syntax can overflow a float before int conversion.
+        for field in ("concurrency", "delay_ms"):
+            with self.subTest(field=field):
+                body = ('{"targets":["127.0.0.1"],"' + field + '":1e999}').encode()
+                request = urllib.request.Request(
+                    f"{self.base}/api/scans", data=body,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as captured:
+                    urllib.request.urlopen(request, timeout=3)
+                self.assertEqual(captured.exception.code, 400)
+                self.assertIn("error", json.loads(captured.exception.read()))
+
     def test_scan_poll_persistence_and_report(self) -> None:
         payload = json.dumps(
             {
